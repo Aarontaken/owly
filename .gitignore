@@ -1,0 +1,6 @@
+build/
+dist/
+.DS_Store
+*.swp
+# generated icon — regenerate with `swift scripts/generate-icon.swift`
+resources/AppIcon.icns
