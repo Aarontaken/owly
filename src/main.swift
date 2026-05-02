@@ -249,13 +249,29 @@ enum LidSleepLock {
         "/etc/sudoers.d/com.user.caffeinatetoggle",
     ]
 
+    /// Whether passwordless `pmset -a disablesleep` is wired up.
+    ///
+    /// Implementation: pure stat — we just check if the sudoers file we
+    /// would have installed is present. We deliberately do NOT probe by
+    /// running `sudo -n pmset ...` here, because that command has a side
+    /// effect (it actually flips disablesleep to 0) and `isAuthorized` is
+    /// called many times per UI refresh. Earlier versions did probe, which
+    /// caused strong mode to silently get reset to 0 on every menu redraw.
     static func isAuthorized() -> Bool {
-        runSudoPmset(value: "0").exitCode == 0
+        let allPaths = [sudoersPath] + sudoersLegacyPaths
+        return allPaths.contains { FileManager.default.fileExists(atPath: $0) }
     }
 
     static func authorizationFailureReason() -> String {
+        let allPaths = [sudoersPath] + sudoersLegacyPaths
+        let found = allPaths.filter { FileManager.default.fileExists(atPath: $0) }
+        if found.isEmpty {
+            return "no sudoers file at \(sudoersPath) (or any legacy path)"
+        }
+        // File exists but a real sudo invocation failed elsewhere — likely
+        // tampered content. Probe (with side effect) to surface the reason.
         let r = runSudoPmset(value: "0")
-        return "exit=\(r.exitCode)  stderr=\(r.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+        return "sudoers file present (\(found.joined(separator: ", "))) but pmset still rejected: exit=\(r.exitCode) stderr=\(r.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
     }
 
     @discardableResult
@@ -591,7 +607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 .runningApplications(withBundleIdentifier: bid)
                 .filter { $0.processIdentifier != myPID }
             if !others.isEmpty {
-                NSLog("CaffeinateToggle: another instance is already running, exiting.")
+                NSLog("Owly: another instance is already running, exiting.")
                 NSApp.terminate(nil)
                 return
             }
