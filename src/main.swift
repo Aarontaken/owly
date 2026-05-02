@@ -1,6 +1,7 @@
 import Cocoa
 import IOKit
 import IOKit.pwr_mgt
+import IOKit.ps
 import SwiftUI
 
 // MARK: - Mode
@@ -399,6 +400,83 @@ enum LidSleepLock {
     }
 }
 
+// MARK: - Power source monitor
+
+/// Watches macOS power source state via the IOPS framework. Fires
+/// `onPowerUnplugged` exactly once per AC → battery transition. Used to
+/// nudge the user toward strong-mode if they yank the adapter while a
+/// long-running task is in flight (a common precursor to "I'll just close
+/// the lid for a sec…" disasters).
+final class PowerSourceMonitor {
+    private var runLoopSource: CFRunLoopSource?
+    private var lastIsOnAC: Bool?
+
+    /// Called on the main thread on every AC → battery transition.
+    /// Stays silent for the initial state and for AC ↔ AC noise.
+    var onPowerUnplugged: (() -> Void)?
+
+    func start() {
+        guard runLoopSource == nil else { return }
+        let info = Unmanaged.passUnretained(self).toOpaque()
+        let callback: IOPowerSourceCallbackType = { context in
+            guard let context = context else { return }
+            let monitor = Unmanaged<PowerSourceMonitor>
+                .fromOpaque(context)
+                .takeUnretainedValue()
+            DispatchQueue.main.async { monitor.handleChange() }
+        }
+
+        guard let unmanagedSource = IOPSNotificationCreateRunLoopSource(callback, info)
+        else { return }
+        let source = unmanagedSource.takeRetainedValue()
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .defaultMode)
+        runLoopSource = source
+
+        // Seed last-known state so the first real transition is detectable.
+        lastIsOnAC = Self.isOnAC()
+    }
+
+    func stop() {
+        if let source = runLoopSource {
+            CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .defaultMode)
+        }
+        runLoopSource = nil
+    }
+
+    func currentlyOnAC() -> Bool { Self.isOnAC() }
+
+    private func handleChange() {
+        let now = Self.isOnAC()
+        let prev = lastIsOnAC
+        lastIsOnAC = now
+        if prev == true && now == false {
+            onPowerUnplugged?()
+        }
+    }
+
+    /// Returns true if any reported power source is currently AC-powered.
+    /// Desktops without a battery report AC and never transition, which is
+    /// fine — they'll never trigger `onPowerUnplugged`.
+    private static func isOnAC() -> Bool {
+        guard let blob = IOPSCopyPowerSourcesInfo()?.takeRetainedValue() else {
+            return false
+        }
+        guard let list = IOPSCopyPowerSourcesList(blob)?.takeRetainedValue()
+                as? [CFTypeRef]
+        else { return false }
+        for source in list {
+            guard let desc = IOPSGetPowerSourceDescription(blob, source)?
+                    .takeUnretainedValue() as? [String: Any]
+            else { continue }
+            if let state = desc[kIOPSPowerSourceStateKey as String] as? String,
+               state == (kIOPSACPowerValue as String) {
+                return true
+            }
+        }
+        return false
+    }
+}
+
 // MARK: - LaunchAgent helpers
 
 enum LaunchAgent {
@@ -500,6 +578,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var autostartItem: NSMenuItem!
     private var resetAuthItem: NSMenuItem!
 
+    private let powerMonitor = PowerSourceMonitor()
+    private let unplugPopover = UnplugAlertPopover()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Bail out if another instance is already running (prevents accidental
         // double-launch when launchd starts one and the user double-clicks
@@ -530,6 +611,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let savedRaw = UserDefaults.standard.integer(forKey: Self.modeKey)
         let saved = CaffeinateMode(rawValue: savedRaw) ?? .off
         applyMode(saved, persist: false)
+
+        // Watch for AC → battery transitions. If the user yanks the
+        // adapter while we're NOT in strong mode, surface a quiet
+        // suggestion under the menu bar icon.
+        powerMonitor.onPowerUnplugged = { [weak self] in
+            self?.handlePowerUnplugged()
+        }
+        powerMonitor.start()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -537,6 +626,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             LidSleepLock.setEnabled(false)
         }
         assertion.disable()
+        powerMonitor.stop()
+    }
+
+    // MARK: Power-source change handler
+
+    private func handlePowerUnplugged() {
+        // Already covering for clamshell sleep — no need to nag.
+        guard currentMode != .strong else { return }
+        // No status-bar button means the menu bar isn't visible
+        // (rare — e.g. setup flake). Fail quietly.
+        guard let button = statusItem.button else { return }
+
+        unplugPopover.show(from: button) { [weak self] in
+            guard let self else { return }
+            // If the user already had sudoers authorized, this is a no-op
+            // password-wise; otherwise applyMode will trigger the native
+            // admin dialog through the normal strong-mode pathway.
+            self.applyMode(.strong, persist: true)
+        }
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -968,6 +1076,122 @@ struct ModeBlurb: View {
             RoundedRectangle(cornerRadius: 8, style: .continuous)
                 .strokeBorder(highlighted ? Color.accentColor.opacity(0.35) : Color.clear, lineWidth: 1)
         )
+    }
+}
+
+// MARK: - Unplug-alert popover
+
+/// Tiny SwiftUI card shown under the menu bar icon when the user yanks
+/// the power adapter while NOT in strong mode. Goal: low-friction nudge,
+/// not a system notification, not a modal dialog.
+private struct UnplugAlertView: View {
+    let onSwitchToStrong: () -> Void
+    let onDismiss: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .firstTextBaseline, spacing: 10) {
+                Image(systemName: "powerplug.fill")
+                    .font(.system(size: 18, weight: .medium))
+                    .foregroundStyle(Color.orange)
+                    .symbolRenderingMode(.hierarchical)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("电源拔了")
+                        .font(.system(size: 13, weight: .semibold))
+                    Text("当前是「熄屏不睡」")
+                        .font(.system(size: 11))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 0)
+            }
+
+            Text("合盖会触发系统睡眠 — 任务/agent 会被打断。要切到「强力模式」吗？")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button(action: onSwitchToStrong) {
+                    HStack(spacing: 5) {
+                        Image(systemName: "bolt.fill")
+                        Text("切到强力模式").font(.system(size: 12, weight: .medium))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 2)
+                }
+                .keyboardShortcut(.defaultAction)
+                .controlSize(.regular)
+
+                Button(action: onDismiss) {
+                    Text("保持当前").font(.system(size: 12))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 2)
+                }
+                .controlSize(.regular)
+            }
+        }
+        .padding(14)
+        .frame(width: 296)
+    }
+}
+
+/// Manages the lifecycle of the unplug-alert NSPopover anchored under the
+/// status item. Throttles repeats so the user isn't pestered.
+final class UnplugAlertPopover {
+    /// Don't re-show within this many seconds, even on repeated unplugs.
+    private static let throttleSeconds: TimeInterval = 30 * 60
+
+    /// Auto-dismiss the popover after this many seconds of no interaction.
+    private static let autoDismissSeconds: TimeInterval = 12
+
+    private var popover: NSPopover?
+    private var hideTimer: Timer?
+    private var lastShownAt: Date?
+
+    /// Show the popover anchored under the given status-bar button.
+    /// `onSwitchToStrong` is invoked on the main thread when the user taps
+    /// the primary CTA. The popover is dismissed automatically afterward.
+    func show(
+        from button: NSStatusBarButton,
+        onSwitchToStrong: @escaping () -> Void
+    ) {
+        if let last = lastShownAt,
+           Date().timeIntervalSince(last) < Self.throttleSeconds {
+            return
+        }
+        lastShownAt = Date()
+
+        // If already on screen, do nothing — don't stack.
+        if popover != nil { return }
+
+        let p = NSPopover()
+        p.behavior = .transient
+        p.animates = true
+        let view = UnplugAlertView(
+            onSwitchToStrong: { [weak self] in
+                onSwitchToStrong()
+                self?.dismiss()
+            },
+            onDismiss: { [weak self] in self?.dismiss() }
+        )
+        p.contentViewController = NSHostingController(rootView: view)
+        p.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover = p
+
+        hideTimer?.invalidate()
+        hideTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.autoDismissSeconds,
+            repeats: false
+        ) { [weak self] _ in
+            self?.dismiss()
+        }
+    }
+
+    func dismiss() {
+        hideTimer?.invalidate()
+        hideTimer = nil
+        popover?.performClose(nil)
+        popover = nil
     }
 }
 
