@@ -1136,32 +1136,24 @@ private struct UnplugAlertView: View {
 }
 
 /// Manages the lifecycle of the unplug-alert NSPopover anchored under the
-/// status item. Throttles repeats so the user isn't pestered.
+/// status item.
 final class UnplugAlertPopover {
-    /// Don't re-show within this many seconds, even on repeated unplugs.
-    private static let throttleSeconds: TimeInterval = 30 * 60
-
     /// Auto-dismiss the popover after this many seconds of no interaction.
     private static let autoDismissSeconds: TimeInterval = 12
 
     private var popover: NSPopover?
     private var hideTimer: Timer?
-    private var lastShownAt: Date?
 
     /// Show the popover anchored under the given status-bar button.
     /// `onSwitchToStrong` is invoked on the main thread when the user taps
     /// the primary CTA. The popover is dismissed automatically afterward.
+    ///
+    /// If a popover is already on screen, this call is a no-op (so we
+    /// don't stack two cards on top of each other).
     func show(
         from button: NSStatusBarButton,
         onSwitchToStrong: @escaping () -> Void
     ) {
-        if let last = lastShownAt,
-           Date().timeIntervalSince(last) < Self.throttleSeconds {
-            return
-        }
-        lastShownAt = Date()
-
-        // If already on screen, do nothing — don't stack.
         if popover != nil { return }
 
         let p = NSPopover()
