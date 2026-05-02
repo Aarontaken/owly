@@ -51,16 +51,26 @@ enum CaffeinateMode: Int {
 /// The image is `isTemplate = true`, so macOS auto-tints it to match the
 /// menu bar theme (white in dark mode, black in light mode).
 enum MenubarOwl {
-    /// Returns a 22pt x 22pt template image for the given mode.
-    static func image(for mode: CaffeinateMode) -> NSImage {
-        let size: CGFloat = 22
+    /// Returns a square template image for the given mode. Default 22pt
+    /// matches the menu bar; pass a larger size for in-window rendering
+    /// (the geometry scales uniformly).
+    static func image(for mode: CaffeinateMode, size: CGFloat = 22) -> NSImage {
         let img = NSImage(size: NSSize(width: size, height: size))
         img.lockFocus()
         defer { img.unlockFocus() }
 
-        // Geometry tuned for a 22pt menu-bar render.
-        let cx: CGFloat = size / 2
-        let cy: CGFloat = size / 2
+        // All geometry below is authored in the 22pt design space and
+        // then scaled into the target canvas via this affine transform,
+        // so call sites can request any pixel size and stroke widths /
+        // distances scale together.
+        let scale = size / 22
+        let xform = NSAffineTransform()
+        xform.scaleX(by: scale, yBy: scale)
+        xform.concat()
+
+        // Geometry tuned for a 22pt render (design space).
+        let cx: CGFloat = 11
+        let cy: CGFloat = 11
         let headW: CGFloat = 15
         let headH: CGFloat = 17
         let outlineWidth: CGFloat = 1.4
@@ -117,9 +127,10 @@ enum MenubarOwl {
                 arc.stroke()
             }
             // Sleeping "Z" in the upper-right corner — three short strokes
-            // forming a Z shape. Indicates "off duty".
-            let zCx: CGFloat = size - 3.3
-            let zCy: CGFloat = size - 3.3
+            // forming a Z shape. Indicates "off duty". Coordinates are in
+            // 22pt design space (top-right corner is (22, 22)).
+            let zCx: CGFloat = 22 - 3.3
+            let zCy: CGFloat = 22 - 3.3
             let zHalf: CGFloat = 1.7
             let z = NSBezierPath()
             z.lineWidth = 1.0
@@ -1017,18 +1028,47 @@ struct AppSnapshot {
 struct InfoCardHeader: View {
     let title: String
     let subtitle: String
+    /// SF Symbol fallback. Used only when `useAppIcon` is false. Kept
+    /// around so other panels (alerts, popovers) can still use a plain
+    /// glyph header without dragging in the full app icon.
     let symbol: String
     let tint: Color
+    /// When true, the leading badge renders the actual Owly app icon
+    /// (the hand-drawn owl) instead of `symbol`. Used by About and
+    /// Diagnostics so those panels carry Owly's visual identity rather
+    /// than a generic SF Symbol.
+    let useAppIcon: Bool
+
+    init(
+        title: String,
+        subtitle: String,
+        symbol: String,
+        tint: Color,
+        useAppIcon: Bool = false
+    ) {
+        self.title = title
+        self.subtitle = subtitle
+        self.symbol = symbol
+        self.tint = tint
+        self.useAppIcon = useAppIcon
+    }
 
     var body: some View {
         HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .fill(tint.opacity(0.18))
+            if useAppIcon, let icon = NSApp.applicationIconImage {
+                Image(nsImage: icon)
+                    .resizable()
+                    .interpolation(.high)
                     .frame(width: 56, height: 56)
-                Image(systemName: symbol)
-                    .font(.system(size: 28, weight: .semibold))
-                    .foregroundStyle(tint)
+            } else {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .fill(tint.opacity(0.18))
+                        .frame(width: 56, height: 56)
+                    Image(systemName: symbol)
+                        .font(.system(size: 28, weight: .semibold))
+                        .foregroundStyle(tint)
+                }
             }
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
@@ -1042,41 +1082,153 @@ struct InfoCardHeader: View {
     }
 }
 
+/// Health classification for a single diagnostic row.
+///
+/// `ok`  — the underlying mechanism is in the state we'd expect for the
+///         current app mode (e.g. IOKit assertion = active in idle mode).
+/// `na`  — the mechanism doesn't apply to the current mode (e.g. IOKit
+///         assertion in strong mode, where pmset disablesleep is doing
+///         the work instead). The value isn't a problem, just irrelevant.
+/// `warn` — actual inconsistency (e.g. user is in strong mode but
+///         disablesleep is 0, meaning the lid-close protection isn't
+///         really in force).
+enum RowHealth {
+    case ok
+    case na
+    case warn
+
+    fileprivate var symbol: String {
+        switch self {
+        case .ok:   return "checkmark.circle.fill"
+        case .na:   return "minus.circle.fill"
+        case .warn: return "exclamationmark.triangle.fill"
+        }
+    }
+
+    fileprivate var tint: Color {
+        switch self {
+        case .ok:   return .green
+        case .na:   return .secondary
+        case .warn: return .orange
+        }
+    }
+}
+
 struct StatusRow: View {
     let symbol: String
+    /// When non-nil, the leading icon renders the Owly glyph for that
+    /// mode (sleeping / open / alert) instead of the SF Symbol — used
+    /// by the "current mode" row to match the menu-bar icon language.
+    let leadingMode: CaffeinateMode?
     let label: String
     let value: String
     let highlighted: Bool
+    /// Optional health indicator drawn on the trailing edge. `nil` hides
+    /// it (used by the About panel, where rows aren't health-checked).
+    let health: RowHealth?
+
+    init(
+        symbol: String,
+        leadingMode: CaffeinateMode? = nil,
+        label: String,
+        value: String,
+        highlighted: Bool,
+        health: RowHealth? = nil
+    ) {
+        self.symbol = symbol
+        self.leadingMode = leadingMode
+        self.label = label
+        self.value = value
+        self.highlighted = highlighted
+        self.health = health
+    }
 
     var body: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol)
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
-                .frame(width: 18)
+            if let leadingMode {
+                Image(nsImage: MenubarOwl.image(for: leadingMode, size: 18))
+                    .renderingMode(.template)
+                    .frame(width: 18, height: 18)
+                    .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
+                    .frame(width: 18)
+            }
             Text(label)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 12)
             Text(value)
                 .font(.system(size: 13, weight: .medium))
-                .foregroundStyle(highlighted ? .primary : .secondary)
+                .foregroundStyle(
+                    health == .na
+                        ? .secondary
+                        : (highlighted ? .primary : .secondary)
+                )
+            if let health {
+                Image(systemName: health.symbol)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(health.tint)
+                    .frame(width: 14)
+                    .help(healthHelp(health))
+            }
+        }
+    }
+
+    private func healthHelp(_ h: RowHealth) -> String {
+        switch h {
+        case .ok:   return "符合当前模式的预期"
+        case .na:   return "当前模式不使用此机制"
+        case .warn: return "状态与当前模式不一致"
         }
     }
 }
 
 struct ModeBlurb: View {
+    /// SF Symbol fallback (kept for back-compat). Used only when `mode`
+    /// is `nil`. Pass a `mode` to render the matching Owly glyph instead.
     let symbol: String
+    /// When non-nil, the leading badge renders the hand-drawn Owly
+    /// expression for that mode (sleeping / open eyes / alert) instead
+    /// of the SF Symbol — matching the menu-bar icon language.
+    let mode: CaffeinateMode?
     let title: String
     let summary: String
     let highlighted: Bool
 
+    init(
+        symbol: String,
+        mode: CaffeinateMode? = nil,
+        title: String,
+        summary: String,
+        highlighted: Bool
+    ) {
+        self.symbol = symbol
+        self.mode = mode
+        self.title = title
+        self.summary = summary
+        self.highlighted = highlighted
+    }
+
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
-            Image(systemName: symbol)
-                .font(.system(size: 16, weight: .semibold))
-                .frame(width: 22)
-                .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
+            if let mode {
+                // Reuse the menu-bar owl glyph at a larger size so this
+                // panel speaks the same visual language as the icon in
+                // the status bar. The image is a template, so the
+                // foregroundStyle below tints it.
+                Image(nsImage: MenubarOwl.image(for: mode, size: 26))
+                    .renderingMode(.template)
+                    .frame(width: 26, height: 26)
+                    .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
+            } else {
+                Image(systemName: symbol)
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(width: 22)
+                    .foregroundStyle(highlighted ? Color.accentColor : Color.secondary)
+            }
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
                     .font(.system(size: 13, weight: .semibold))
@@ -1217,14 +1369,16 @@ struct AboutView: View {
             VStack(alignment: .leading, spacing: 18) {
                 InfoCardHeader(
                     title: "Owly",
-                    subtitle: "v1.0  ·  菜单栏防睡眠工具",
+                    subtitle: "菜单栏防睡眠工具",
                     symbol: "powersleep",
-                    tint: .accentColor
+                    tint: .accentColor,
+                    useAppIcon: true
                 )
 
                 VStack(alignment: .leading, spacing: 10) {
                     StatusRow(
                         symbol: snapshot.currentMode.iconSymbol,
+                        leadingMode: snapshot.currentMode,
                         label: "当前模式",
                         value: snapshot.currentMode.menuTitle,
                         highlighted: snapshot.currentMode != .off
@@ -1236,14 +1390,22 @@ struct AboutView: View {
                             : "exclamationmark.shield",
                         label: "强力模式授权",
                         value: snapshot.lidAuthorized ? "已授权" : "未授权",
-                        highlighted: snapshot.lidAuthorized
+                        highlighted: snapshot.lidAuthorized,
+                        // ok if installed; warn if currently *in* strong mode but
+                        // somehow not authorized (defensive — shouldn't happen);
+                        // otherwise it's just a user choice (na, not a problem).
+                        health: snapshot.lidAuthorized
+                            ? .ok
+                            : (snapshot.currentMode == .strong ? .warn : .na)
                     )
                     Divider()
                     StatusRow(
                         symbol: snapshot.autostartConfigured ? "power.circle.fill" : "power.circle",
                         label: "开机自启",
                         value: snapshot.autostartConfigured ? "已配置" : "未配置",
-                        highlighted: snapshot.autostartConfigured
+                        highlighted: snapshot.autostartConfigured,
+                        // Pure user preference — "未配置" is not a problem.
+                        health: snapshot.autostartConfigured ? .ok : .na
                     )
                 }
                 .padding(14)
@@ -1259,6 +1421,7 @@ struct AboutView: View {
 
                     ModeBlurb(
                         symbol: CaffeinateMode.off.iconSymbol,
+                        mode: .off,
                         title: "关闭",
                         summary: "系统按默认电源策略走。",
                         highlighted: snapshot.currentMode == .off
@@ -1266,6 +1429,7 @@ struct AboutView: View {
 
                     ModeBlurb(
                         symbol: CaffeinateMode.idle.iconSymbol,
+                        mode: .idle,
                         title: "熄屏不睡（≈ caffeinate -i）",
                         summary: "屏幕到时间照常熄灭省电，但系统不会因空闲而睡，任务继续跑。合盖仍会触发系统级睡眠。",
                         highlighted: snapshot.currentMode == .idle
@@ -1273,6 +1437,7 @@ struct AboutView: View {
 
                     ModeBlurb(
                         symbol: CaffeinateMode.strong.iconSymbol,
+                        mode: .strong,
                         title: "强力模式（pmset disablesleep=1）",
                         summary: "系统级硬开关，连合盖都不睡（强力模式是熄屏不睡的超集）。",
                         highlighted: snapshot.currentMode == .strong
@@ -1301,19 +1466,98 @@ struct AboutView: View {
 struct DiagnosticsView: View {
     let snapshot: AppSnapshot
 
-    private var assertionRows: [(String, String, String, Bool)] {
-        [
-            ("当前模式（内存）",   snapshot.currentMode.menuTitle, snapshot.currentMode.iconSymbol,
-             snapshot.currentMode != .off),
-            ("IOKit assertion", snapshot.idleAssertionActive ? "active" : "inactive",
-             snapshot.idleAssertionActive ? "checkmark.seal.fill" : "circle.dashed",
-             snapshot.idleAssertionActive),
-            ("pmset disablesleep", snapshot.disablesleepActive ? "1 (no sleep)" : "0 (default)",
-             snapshot.disablesleepActive ? "lock.shield.fill" : "lock.open",
-             snapshot.disablesleepActive),
-            ("强力模式 sudoers", snapshot.lidAuthorized ? "OK (passwordless sudo)" : "FAILED",
-             snapshot.lidAuthorized ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
-             snapshot.lidAuthorized),
+    /// One row in the diagnostics list. `health == nil` hides the trailing
+    /// status indicator (used for the "current mode" row, which is fact,
+    /// not a checked invariant).
+    private struct AssertionRow {
+        let label: String
+        let value: String
+        let symbol: String
+        let leadingMode: CaffeinateMode?
+        let highlighted: Bool
+        let health: RowHealth?
+
+        init(
+            label: String,
+            value: String,
+            symbol: String,
+            leadingMode: CaffeinateMode? = nil,
+            highlighted: Bool,
+            health: RowHealth?
+        ) {
+            self.label = label
+            self.value = value
+            self.symbol = symbol
+            self.leadingMode = leadingMode
+            self.highlighted = highlighted
+            self.health = health
+        }
+    }
+
+    private var assertionRows: [AssertionRow] {
+        let mode = snapshot.currentMode
+
+        // IOKit assertion: should be active iff in idle mode. In any
+        // other mode it should be inactive — if it's active anyway,
+        // that's a stale assertion (warn).
+        let iokitHealth: RowHealth = {
+            switch mode {
+            case .idle:
+                return snapshot.idleAssertionActive ? .ok : .warn
+            case .strong, .off:
+                return snapshot.idleAssertionActive ? .warn : .na
+            }
+        }()
+
+        // pmset disablesleep: should be 1 iff in strong mode. Anywhere
+        // else, 1 means a leaked global sleep lock (warn).
+        let pmsetHealth: RowHealth = {
+            switch mode {
+            case .strong:
+                return snapshot.disablesleepActive ? .ok : .warn
+            case .idle, .off:
+                return snapshot.disablesleepActive ? .warn : .na
+            }
+        }()
+
+        // Sudoers authorization: required iff currently in strong mode.
+        // If the user just hasn't enabled strong mode yet, "未授权" is
+        // perfectly fine (na), not a warning.
+        let sudoersHealth: RowHealth = {
+            if snapshot.lidAuthorized { return .ok }
+            return mode == .strong ? .warn : .na
+        }()
+
+        return [
+            AssertionRow(
+                label: "当前模式（内存）",
+                value: mode.menuTitle,
+                symbol: mode.iconSymbol,
+                leadingMode: mode,
+                highlighted: mode != .off,
+                health: nil
+            ),
+            AssertionRow(
+                label: "IOKit assertion",
+                value: snapshot.idleAssertionActive ? "active" : "inactive",
+                symbol: snapshot.idleAssertionActive ? "checkmark.seal.fill" : "circle.dashed",
+                highlighted: snapshot.idleAssertionActive,
+                health: iokitHealth
+            ),
+            AssertionRow(
+                label: "pmset disablesleep",
+                value: snapshot.disablesleepActive ? "1 (no sleep)" : "0 (default)",
+                symbol: snapshot.disablesleepActive ? "lock.shield.fill" : "lock.open",
+                highlighted: snapshot.disablesleepActive,
+                health: pmsetHealth
+            ),
+            AssertionRow(
+                label: "强力模式 sudoers",
+                value: snapshot.lidAuthorized ? "OK (passwordless sudo)" : "未授权",
+                symbol: snapshot.lidAuthorized ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
+                highlighted: snapshot.lidAuthorized,
+                health: sudoersHealth
+            ),
         ]
     }
 
@@ -1324,12 +1568,20 @@ struct DiagnosticsView: View {
                     title: "诊断信息",
                     subtitle: "实时读取的 App 与系统状态",
                     symbol: "stethoscope",
-                    tint: snapshot.lidAuthorized ? .green : .orange
+                    tint: snapshot.lidAuthorized ? .green : .orange,
+                    useAppIcon: true
                 )
 
                 VStack(spacing: 10) {
                     ForEach(Array(assertionRows.enumerated()), id: \.offset) { _, row in
-                        StatusRow(symbol: row.2, label: row.0, value: row.1, highlighted: row.3)
+                        StatusRow(
+                            symbol: row.symbol,
+                            leadingMode: row.leadingMode,
+                            label: row.label,
+                            value: row.value,
+                            highlighted: row.highlighted,
+                            health: row.health
+                        )
                     }
                 }
                 .padding(14)
