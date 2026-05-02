@@ -26,12 +26,173 @@ enum CaffeinateMode: Int {
         }
     }
 
+    /// SF Symbol used in the SwiftUI About / Diagnostics dialogs (where
+    /// the bigger canvas can comfortably show a generic icon). The menu
+    /// bar uses a hand-drawn owl glyph instead — see `MenubarOwl`.
     var iconSymbol: String {
         switch self {
-        case .off:    return "moon.zzz"
-        case .idle:   return "cup.and.saucer.fill"
+        case .off:    return "moon.zzz.fill"
+        case .idle:   return "eye.fill"
         case .strong: return "bolt.fill"
         }
+    }
+}
+
+// MARK: - Menubar owl glyph
+
+/// Hand-drawn owl head rendered as an alpha-only template image, suitable
+/// for an `NSStatusItem` button. Matches the App icon's character: ear
+/// tufts, an outline head, and three expressions:
+///   - off:    closed eyes (^^) plus a "Z" drifting in the corner
+///   - idle:   open eyes (round dots) — Owly on watch
+///   - strong: open eyes plus a small starburst around each eye
+///
+/// The image is `isTemplate = true`, so macOS auto-tints it to match the
+/// menu bar theme (white in dark mode, black in light mode).
+enum MenubarOwl {
+    /// Returns a 22pt x 22pt template image for the given mode.
+    static func image(for mode: CaffeinateMode) -> NSImage {
+        let size: CGFloat = 22
+        let img = NSImage(size: NSSize(width: size, height: size))
+        img.lockFocus()
+        defer { img.unlockFocus() }
+
+        // Geometry tuned for a 22pt menu-bar render.
+        let cx: CGFloat = size / 2
+        let cy: CGFloat = size / 2
+        let headW: CGFloat = 15
+        let headH: CGFloat = 17
+        let outlineWidth: CGFloat = 1.4
+
+        NSColor.black.setFill()
+        NSColor.black.setStroke()
+
+        // 1. Head outline (stroke-only so the menu bar shows through and
+        //    the silhouette doesn't dominate at small sizes).
+        let headRect = NSRect(
+            x: cx - headW / 2,
+            y: cy - headH / 2,
+            width: headW,
+            height: headH
+        )
+        let headPath = NSBezierPath(ovalIn: headRect)
+        headPath.lineWidth = outlineWidth
+        headPath.stroke()
+
+        // 2. Ear tufts (filled triangles, tips poking above the head)
+        let earBaseY: CGFloat = cy + headH / 2 - 1.5
+        let earTipY: CGFloat = cy + headH / 2 + 1.8
+        let earOffset: CGFloat = 4.2
+        let earBaseHalf: CGFloat = 1.3
+        for sign: CGFloat in [-1, 1] {
+            let earCx = cx + sign * earOffset
+            let triangle = NSBezierPath()
+            triangle.move(to: NSPoint(x: earCx - earBaseHalf, y: earBaseY))
+            triangle.line(to: NSPoint(x: earCx + earBaseHalf, y: earBaseY))
+            triangle.line(to: NSPoint(x: earCx, y: earTipY))
+            triangle.close()
+            triangle.fill()
+        }
+
+        // 3. Eyes (state-dependent)
+        let eyeOffset: CGFloat = 3.4
+        let eyeY: CGFloat = cy + 1.2
+        let eyeR: CGFloat = 1.5
+
+        switch mode {
+        case .off:
+            // Closed eyes: two upward arcs ("^^") drawn as round-cap strokes.
+            for sign: CGFloat in [-1, 1] {
+                let eyeCx = cx + sign * eyeOffset
+                let arc = NSBezierPath()
+                arc.lineWidth = 1.2
+                arc.lineCapStyle = .round
+                arc.appendArc(
+                    withCenter: NSPoint(x: eyeCx, y: eyeY - 0.2),
+                    radius: eyeR + 0.4,
+                    startAngle: 25,
+                    endAngle: 155
+                )
+                arc.stroke()
+            }
+            // Sleeping "Z" in the upper-right corner — three short strokes
+            // forming a Z shape. Indicates "off duty".
+            let zCx: CGFloat = size - 3.3
+            let zCy: CGFloat = size - 3.3
+            let zHalf: CGFloat = 1.7
+            let z = NSBezierPath()
+            z.lineWidth = 1.0
+            z.lineCapStyle = .round
+            z.lineJoinStyle = .round
+            z.move(to: NSPoint(x: zCx - zHalf, y: zCy + zHalf))
+            z.line(to: NSPoint(x: zCx + zHalf, y: zCy + zHalf))
+            z.line(to: NSPoint(x: zCx - zHalf, y: zCy - zHalf))
+            z.line(to: NSPoint(x: zCx + zHalf, y: zCy - zHalf))
+            z.stroke()
+
+        case .idle:
+            // Open eyes: two filled dots (the pupils, against the head's
+            // empty interior — read as round eyes at 22pt).
+            for sign: CGFloat in [-1, 1] {
+                let eyeCx = cx + sign * eyeOffset
+                NSBezierPath(ovalIn: NSRect(
+                    x: eyeCx - eyeR,
+                    y: eyeY - eyeR,
+                    width: eyeR * 2,
+                    height: eyeR * 2
+                )).fill()
+            }
+
+        case .strong:
+            // Open eyes + small starburst around each.
+            for sign: CGFloat in [-1, 1] {
+                let eyeCx = cx + sign * eyeOffset
+                NSBezierPath(ovalIn: NSRect(
+                    x: eyeCx - eyeR,
+                    y: eyeY - eyeR,
+                    width: eyeR * 2,
+                    height: eyeR * 2
+                )).fill()
+
+                // 3 short outward rays per eye (outer side only)
+                let angles: [CGFloat] = sign > 0
+                    ? [-35, 5, 45]      // right eye: SE, E-up, NE
+                    : [135, 175, 215]   // left eye: NW, W, SW (mirror)
+                for deg in angles {
+                    let rad = deg * .pi / 180
+                    let rayInner: CGFloat = eyeR + 0.5
+                    let rayOuter: CGFloat = eyeR + 2.0
+                    let dx = cos(rad)
+                    let dy = sin(rad)
+                    let ray = NSBezierPath()
+                    ray.lineWidth = 0.9
+                    ray.lineCapStyle = .round
+                    ray.move(to: NSPoint(
+                        x: eyeCx + dx * rayInner,
+                        y: eyeY + dy * rayInner
+                    ))
+                    ray.line(to: NSPoint(
+                        x: eyeCx + dx * rayOuter,
+                        y: eyeY + dy * rayOuter
+                    ))
+                    ray.stroke()
+                }
+            }
+        }
+
+        // 4. Beak (tiny triangle pointing down, between/below the eyes)
+        let beakTopY: CGFloat = cy - 2.0
+        let beakTipY: CGFloat = beakTopY - 1.6
+        let beakHalfW: CGFloat = 0.85
+        let beak = NSBezierPath()
+        beak.move(to: NSPoint(x: cx - beakHalfW, y: beakTopY))
+        beak.line(to: NSPoint(x: cx + beakHalfW, y: beakTopY))
+        beak.line(to: NSPoint(x: cx, y: beakTipY))
+        beak.close()
+        beak.fill()
+
+        img.isTemplate = true
+        return img
     }
 }
 
@@ -584,12 +745,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func refreshUI() {
         if let button = statusItem.button {
-            let image = NSImage(
-                systemSymbolName: currentMode.iconSymbol,
-                accessibilityDescription: currentMode.menuTitle
-            )
-            image?.isTemplate = true
-            button.image = image
+            // Hand-drawn owl glyph (auto-tinted by macOS to match the menu
+            // bar theme via `isTemplate = true`). Each mode = a different
+            // owl expression: closed eyes / open eyes / open + starburst.
+            button.image = MenubarOwl.image(for: currentMode)
         }
 
         headerItem.title = currentMode.statusLine
