@@ -262,16 +262,20 @@ enum LidSleepLock {
         return allPaths.contains { FileManager.default.fileExists(atPath: $0) }
     }
 
+    /// Human-readable diagnostic explaining why authorization is missing.
+    ///
+    /// IMPORTANT: must remain side-effect free. The diagnostics window
+    /// builds this string every time it's opened, and an earlier version
+    /// fell back to running `sudo pmset -a disablesleep 0` to surface the
+    /// real exit code — which silently flipped strong mode off whenever
+    /// the user opened the diagnostics window. Stay file-system only.
     static func authorizationFailureReason() -> String {
         let allPaths = [sudoersPath] + sudoersLegacyPaths
         let found = allPaths.filter { FileManager.default.fileExists(atPath: $0) }
         if found.isEmpty {
             return "no sudoers file at \(sudoersPath) (or any legacy path)"
         }
-        // File exists but a real sudo invocation failed elsewhere — likely
-        // tampered content. Probe (with side effect) to surface the reason.
-        let r = runSudoPmset(value: "0")
-        return "sudoers file present (\(found.joined(separator: ", "))) but pmset still rejected: exit=\(r.exitCode) stderr=\(r.stderr.trimmingCharacters(in: .whitespacesAndNewlines))"
+        return "sudoers file present at \(found.joined(separator: ", ")) — file may have been tampered with or the rules don't match the expected `\(pmsetPath) -a disablesleep 0|1` pattern"
     }
 
     @discardableResult
