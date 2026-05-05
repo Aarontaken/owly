@@ -131,7 +131,7 @@ owly/
 如果你想自己改名/打包发给同事：
 
 ```bash
-./scripts/distribute.sh 1.0.1   # 在 dist/ 下生成 Owly-v1.0.1.zip
+./scripts/distribute.sh 1.1.3   # 在 dist/ 下生成 Owly-v1.1.3.zip（不传参时默认即此版本）
 ```
 
 zip 内含 `Owly.app` + 一份给同事的中文 README。同事拿到只需：解压 → 拖到「应用程序」 → 右键打开。
