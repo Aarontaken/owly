@@ -66,9 +66,9 @@ cd owly
 
 启动后菜单栏会出现一个图标，点开是这样。菜单底部可切换中 / 英文：
 
-![Owly 菜单栏截图](resources/screenshot.png)
+![Owly 菜单栏截图](https://raw.githubusercontent.com/Aarontaken/owly/main/resources/screenshot.png)
 
-![Owly menu bar screenshot](resources/screenshot-en.png)
+![Owly menu bar screenshot](https://raw.githubusercontent.com/Aarontaken/owly/main/resources/screenshot-en.png)
 
 **「强力模式」第一次点会弹 macOS 原生管理员授权对话框**，输一次密码后永久免密。授权范围**严格限制**为以下两条精确命令：
 

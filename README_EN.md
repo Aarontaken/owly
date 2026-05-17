@@ -66,9 +66,9 @@ cd owly
 
 Launch the app and a menu bar icon appears. The menu supports Chinese / English switching at the bottom:
 
-![Owly menu bar screenshot](resources/screenshot-en.png)
+![Owly menu bar screenshot](https://raw.githubusercontent.com/Aarontaken/owly/main/resources/screenshot-en.png)
 
-![Owly 菜单栏截图](resources/screenshot.png)
+![Owly 菜单栏截图](https://raw.githubusercontent.com/Aarontaken/owly/main/resources/screenshot.png)
 
 **The first time you click Strong Mode**, a native macOS admin dialog appears. Enter your password once and it's permanently password-free thereafter. The authorization is **strictly limited** to these two exact commands:
 
