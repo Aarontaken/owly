@@ -4,6 +4,229 @@ import IOKit.pwr_mgt
 import IOKit.ps
 import SwiftUI
 
+// MARK: - Localization
+
+enum Language: String, CaseIterable {
+    case english = "en"
+    case chinese = "zh"
+
+    var displayName: String {
+        switch self {
+        case .english: return "English"
+        case .chinese: return "中文"
+        }
+    }
+
+    var next: Language {
+        self == .chinese ? .english : .chinese
+    }
+}
+
+/// All user-facing strings keyed by `Language`. Every property returns the
+/// string for the currently selected language (persisted in UserDefaults).
+///
+/// Add new strings as static computed properties; keep the en / zh values
+/// aligned so nothing falls out of sync.
+struct L10n {
+    static var current: Language {
+        get {
+            guard let raw = UserDefaults.standard.string(forKey: "appLanguage"),
+                  let lang = Language(rawValue: raw) else { return .chinese }
+            return lang
+        }
+        set { UserDefaults.standard.set(newValue.rawValue, forKey: "appLanguage") }
+    }
+
+    // MARK: Mode names
+
+    static var modeOff: String { current == .chinese ? "关闭" : "Off" }
+    static var modeIdle: String { current == .chinese ? "熄屏不睡（屏幕照常熄）" : "Prevent Idle Sleep (screen sleeps)" }
+    static var modeStrong: String { current == .chinese ? "强力模式（合盖也不睡）" : "Strong Mode (no lid sleep)" }
+
+    static var statusOff: String { current == .chinese ? "当前：关闭" : "Current: Off" }
+    static var statusIdle: String { current == .chinese ? "当前：熄屏不睡" : "Current: Prevent Idle Sleep" }
+    static var statusStrong: String { current == .chinese ? "当前：强力模式（合盖也不睡）" : "Current: Strong Mode" }
+
+    // MARK: Menu
+
+    static var notAuthorizedSuffix: String { current == .chinese ? " — 未授权" : " — Not Authorized" }
+    static var menuAutostart: String { current == .chinese ? "开机自启" : "Launch at Login" }
+    static var menuResetAuth: String { current == .chinese ? "撤销强力模式授权…" : "Revoke Strong Mode Authorization…" }
+    static var menuAbout: String { current == .chinese ? "关于 / 状态详情…" : "About / Status Details…" }
+    static var menuDiagnostics: String { current == .chinese ? "诊断信息…" : "Diagnostics…" }
+    static var menuQuit: String { current == .chinese ? "退出" : "Quit" }
+    static var menuLanguage: String { current == .chinese ? "Language / 语言" : "Language / 语言" }
+
+    // MARK: Alerts – common
+
+    static var okButton: String { current == .chinese ? "好" : "OK" }
+    static var cancel: String { current == .chinese ? "取消" : "Cancel" }
+
+    // MARK: Alerts – strong mode
+
+    static var strongModeAlertTitle: String { current == .chinese ? "启用强力模式（合盖也不睡）" : "Enable Strong Mode (no lid sleep)" }
+    static var strongModeAlertInfo: String {
+        current == .chinese
+            ? """
+            强力模式需要一次性管理员授权，之后切换永久免密。
+
+            点击「立即授权」会弹出 macOS 原生的管理员对话框，输入登录密码即可。
+
+            授权范围被严格限制为：
+              • pmset -a disablesleep 0
+              • pmset -a disablesleep 1
+
+            不会获得其他任何 root 权限。
+            """
+            : """
+            Strong Mode requires a one-time admin authorization; after that, switching is permanently password-free.
+
+            Click "Authorize" to open the native macOS admin dialog — just enter your login password.
+
+            The authorization is strictly limited to:
+              • pmset -a disablesleep 0
+              • pmset -a disablesleep 1
+
+            No other root privileges are granted.
+            """
+    }
+    static var authorizeButton: String { current == .chinese ? "立即授权…" : "Authorize…" }
+    static var installFailedTitle: String { current == .chinese ? "授权安装失败" : "Authorization Failed" }
+    static var installFailedMessage: String {
+        current == .chinese
+            ? """
+            请尝试改用命令行：
+
+              cd ~/a-idea/owly
+              ./scripts/enable-lid-lock.sh
+
+            技术细节：
+            """
+            : """
+            Try the command line instead:
+
+              cd ~/a-idea/owly
+              ./scripts/enable-lid-lock.sh
+
+            Details:
+            """
+    }
+
+    // MARK: Alerts – reset auth
+
+    static var resetAuthAlertTitle: String { current == .chinese ? "撤销强力模式授权？" : "Revoke Strong Mode Authorization?" }
+    static var resetAuthAlertInfo: String {
+        current == .chinese
+            ? "会删除 /etc/sudoers.d/owly（以及任何遗留的旧版本 sudoers 文件）并把 disablesleep 复位为 0。需要再次输入管理员密码。"
+            : "This will remove /etc/sudoers.d/owly (and any legacy sudoers files) and reset disablesleep to 0. Admin password required."
+    }
+    static var revokeButton: String { current == .chinese ? "撤销授权" : "Revoke" }
+    static var revokeFailedTitle: String { current == .chinese ? "撤销失败" : "Revoke Failed" }
+
+    // MARK: Alerts – switch failed
+
+    static var switchFailedTitle: String { current == .chinese ? "切换失败" : "Switch Failed" }
+    static var idleSwitchFailed: String { current == .chinese ? "IOKit 拒绝创建电源 assertion。" : "IOKit refused to create power assertion." }
+    static var strongSwitchFailed: String { current == .chinese ? "执行 sudo pmset 失败。请检查 sudoers 配置。" : "sudo pmset failed. Check sudoers configuration." }
+
+    // MARK: Alerts – autostart
+
+    static var autostartFailedTitle: String { current == .chinese ? "切换开机自启失败" : "Failed to Toggle Launch at Login" }
+    static var autostartEnabledTitle: String { current == .chinese ? "开机自启已启用" : "Launch at Login Enabled" }
+    static var autostartEnabledInfo: String {
+        current == .chinese
+            ? "下次开机或注销重新登录时，App 会自动启动。\n\n当前正在运行的实例不会受影响。"
+            : "The app will launch automatically on next login or reboot.\n\nThe currently running instance is unaffected."
+    }
+
+    // MARK: About view
+
+    static var aboutTitle: String { "Owly" }
+    static var aboutSubtitle: String { current == .chinese ? "菜单栏防睡眠工具" : "Menu Bar Anti-Sleep Tool" }
+    static var aboutCurrentMode: String { current == .chinese ? "当前模式" : "Current Mode" }
+    static var aboutStrongAuth: String { current == .chinese ? "强力模式授权" : "Strong Mode Authorization" }
+    static var authorized: String { current == .chinese ? "已授权" : "Authorized" }
+    static var notAuthorized: String { current == .chinese ? "未授权" : "Not Authorized" }
+    static var aboutAutostart: String { current == .chinese ? "开机自启" : "Launch at Login" }
+    static var configured: String { current == .chinese ? "已配置" : "Configured" }
+    static var notConfigured: String { current == .chinese ? "未配置" : "Not Configured" }
+    static var modeDescription: String { current == .chinese ? "模式说明" : "Modes" }
+    static var modeOffSummary: String { current == .chinese ? "系统按默认电源策略走。" : "System follows default power policy." }
+    static var modeIdleTitle: String { current == .chinese ? "熄屏不睡（≈ caffeinate -i）" : "Prevent Idle Sleep (≈ caffeinate -i)" }
+    static var modeIdleSummary: String {
+        current == .chinese
+            ? "屏幕到时间照常熄灭省电，但系统不会因空闲而睡，任务继续跑。合盖仍会触发系统级睡眠。"
+            : "Screen sleeps as scheduled, but the system won't idle-sleep — your tasks keep running. Closing the lid still triggers system sleep."
+    }
+    static var modeStrongTitle: String { current == .chinese ? "强力模式（pmset disablesleep=1）" : "Strong Mode (pmset disablesleep=1)" }
+    static var modeStrongSummary: String {
+        current == .chinese
+            ? "系统级硬开关，连合盖都不睡（强力模式是熄屏不睡的超集）。"
+            : "System-level hard switch — prevents sleep even when the lid is closed (superset of Prevent Idle Sleep)."
+    }
+    static var autoResetNote: String {
+        current == .chinese
+            ? "App 退出时会自动复位 disablesleep=0，避免遗留状态。"
+            : "disablesleep=0 is automatically reset when the app exits, preventing stale state."
+    }
+
+    // MARK: Diagnostics view
+
+    static var diagTitle: String { current == .chinese ? "诊断信息" : "Diagnostics" }
+    static var diagSubtitle: String { current == .chinese ? "实时读取的 App 与系统状态" : "Real-time App & System State" }
+    static var diagCurrentMode: String { current == .chinese ? "当前模式（内存）" : "Current Mode (in memory)" }
+    static var diagIOKit: String { "IOKit assertion" }
+    static var diagPmset: String { "pmset disablesleep" }
+    static var diagSudoers: String { current == .chinese ? "强力模式 sudoers" : "Strong Mode sudoers" }
+    static var active: String { "active" }
+    static var inactive: String { "inactive" }
+    static var noSleep: String { "1 (no sleep)" }
+    static var defaultValue: String { "0 (default)" }
+    static var sudoersOk: String { "OK (passwordless sudo)" }
+    static var sudoersNotActive: String { current == .chinese ? "sudoers 未生效" : "sudoers not active" }
+    static var sudoersFix: String {
+        current == .chinese
+            ? "修复：菜单点击「强力模式」会自动弹出原生授权对话框，或运行命令行脚本 `scripts/enable-lid-lock.sh`"
+            : "Fix: Click \"Strong Mode\" in the menu for the native auth dialog, or run `scripts/enable-lid-lock.sh`"
+    }
+    static var processInfo: String { current == .chinese ? "进程信息" : "Process Info" }
+    static var pid: String { "PID" }
+    static var bundle: String { "Bundle" }
+
+    // MARK: Unplug alert
+
+    static var unpluggedTitle: String { current == .chinese ? "电源拔了" : "Power Unplugged" }
+    static var unpluggedCurrently: String {
+        current == .chinese ? "当前是「熄屏不睡」" : "Currently: Prevent Idle Sleep"
+    }
+    static var unpluggedBody: String {
+        current == .chinese
+            ? "合盖会触发系统睡眠 — 任务/agent 会被打断。要切到「强力模式」吗？"
+            : "Closing the lid will trigger system sleep — tasks/agents will be interrupted. Switch to Strong Mode?"
+    }
+    static var switchToStrong: String { current == .chinese ? "切到强力模式" : "Switch to Strong Mode" }
+    static var keepCurrent: String { current == .chinese ? "保持当前" : "Keep Current" }
+
+    // MARK: RowHealth help
+
+    static var healthOk: String { current == .chinese ? "符合当前模式的预期" : "Matches expected state" }
+    static var healthNa: String { current == .chinese ? "当前模式不使用此机制" : "Not used in current mode" }
+    static var healthWarn: String { current == .chinese ? "状态与当前模式不一致" : "State inconsistent with current mode" }
+
+    // MARK: Auth prompts (AppleScript dialogs)
+
+    static var sudoersInstallPrompt: String {
+        current == .chinese
+            ? "Owly 想要启用「强力模式」。\n\n会安装一份 sudoers 规则到 /etc/sudoers.d/owly，只授权以下两条精确命令免密执行（不会获得任何其他 root 权限）：\n\n  pmset -a disablesleep 0\n  pmset -a disablesleep 1"
+            : "Owly wants to enable Strong Mode.\n\nA sudoers rule will be installed at /etc/sudoers.d/owly, authorizing only these two exact commands without a password (no other root privileges are granted):\n\n  pmset -a disablesleep 0\n  pmset -a disablesleep 1"
+    }
+    static var sudoersUninstallPrompt: String {
+        current == .chinese
+            ? "Owly 想要撤销「强力模式」授权，并把 disablesleep 复位为 0。"
+            : "Owly wants to revoke Strong Mode authorization and reset disablesleep to 0."
+    }
+}
+
 // MARK: - Mode
 
 enum CaffeinateMode: Int {
@@ -13,17 +236,17 @@ enum CaffeinateMode: Int {
 
     var menuTitle: String {
         switch self {
-        case .off:    return "关闭"
-        case .idle:   return "熄屏不睡（屏幕照常熄）"
-        case .strong: return "强力模式（合盖也不睡）"
+        case .off:    return L10n.modeOff
+        case .idle:   return L10n.modeIdle
+        case .strong: return L10n.modeStrong
         }
     }
 
     var statusLine: String {
         switch self {
-        case .off:    return "当前：关闭"
-        case .idle:   return "当前：熄屏不睡"
-        case .strong: return "当前：强力模式（合盖也不睡）"
+        case .off:    return L10n.statusOff
+        case .idle:   return L10n.statusIdle
+        case .strong: return L10n.statusStrong
         }
     }
 
@@ -322,7 +545,7 @@ enum LidSleepLock {
 
         return runWithAdminPrivileges(
             shell: shellCommand,
-            prompt: "Owly 想要启用「强力模式」。\n\n会安装一份 sudoers 规则到 /etc/sudoers.d/owly，只授权以下两条精确命令免密执行（不会获得任何其他 root 权限）：\n\n  pmset -a disablesleep 0\n  pmset -a disablesleep 1"
+            prompt: L10n.sudoersInstallPrompt
         )
     }
 
@@ -338,7 +561,7 @@ enum LidSleepLock {
         """
         return runWithAdminPrivileges(
             shell: shellCommand,
-            prompt: "Owly 想要撤销「强力模式」授权，并把 disablesleep 复位为 0。"
+            prompt: L10n.sudoersUninstallPrompt
         )
     }
 
@@ -608,9 +831,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var modeItems: [CaffeinateMode: NSMenuItem] = [:]
     private var autostartItem: NSMenuItem!
     private var resetAuthItem: NSMenuItem!
+    private var languageItem: NSMenuItem!
+    private var languageSubmenu: NSMenu!
 
     private let powerMonitor = PowerSourceMonitor()
     private let unplugPopover = UnplugAlertPopover()
+
+    /// Language at last menu build — used to detect changes that require
+    /// a full menu rebuild.
+    private var lastLanguage: Language?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Bail out if another instance is already running (prevents accidental
@@ -637,6 +866,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let menu = buildMenu()
         menu.delegate = self
         statusItem.menu = menu
+        lastLanguage = L10n.current
 
         // Restore the mode from last session.
         let savedRaw = UserDefaults.standard.integer(forKey: Self.modeKey)
@@ -679,10 +909,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     }
 
     func menuWillOpen(_ menu: NSMenu) {
+        // If language changed since last build, rebuild the entire menu.
+        if L10n.current != lastLanguage {
+            rebuildMenu()
+        }
         refreshUI()
     }
 
-    // MARK: Build menu
+    // MARK: Build / rebuild menu
+
+    private func rebuildMenu() {
+        let menu = buildMenu()
+        menu.delegate = self
+        statusItem.menu = menu
+        lastLanguage = L10n.current
+    }
 
     private func buildMenu() -> NSMenu {
         let menu = NSMenu()
@@ -707,7 +948,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(.separator())
 
         autostartItem = NSMenuItem(
-            title: "开机自启",
+            title: L10n.menuAutostart,
             action: #selector(toggleAutostart),
             keyEquivalent: ""
         )
@@ -715,7 +956,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(autostartItem)
 
         resetAuthItem = NSMenuItem(
-            title: "撤销强力模式授权…",
+            title: L10n.menuResetAuth,
             action: #selector(resetAuthorizationClicked),
             keyEquivalent: ""
         )
@@ -723,7 +964,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(resetAuthItem)
 
         let aboutItem = NSMenuItem(
-            title: "关于 / 状态详情…",
+            title: L10n.menuAbout,
             action: #selector(showAbout),
             keyEquivalent: ""
         )
@@ -731,23 +972,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(aboutItem)
 
         let diagnosticsItem = NSMenuItem(
-            title: "诊断信息…",
+            title: L10n.menuDiagnostics,
             action: #selector(showDiagnostics),
             keyEquivalent: ""
         )
         diagnosticsItem.target = self
         menu.addItem(diagnosticsItem)
 
+        // Language submenu
+        languageSubmenu = NSMenu()
+        languageItem = NSMenuItem(title: L10n.menuLanguage, action: nil, keyEquivalent: "")
+        menu.addItem(languageItem)
+        menu.setSubmenu(languageSubmenu, for: languageItem)
+
+        rebuildLanguageSubmenu()
+
         menu.addItem(.separator())
 
         let quitItem = NSMenuItem(
-            title: "退出",
+            title: L10n.menuQuit,
             action: #selector(NSApp.terminate(_:)),
             keyEquivalent: "q"
         )
         menu.addItem(quitItem)
 
         return menu
+    }
+
+    private func rebuildLanguageSubmenu() {
+        languageSubmenu.removeAllItems()
+        languageItem.title = L10n.menuLanguage
+        for lang in Language.allCases {
+            let item = NSMenuItem(
+                title: lang.displayName,
+                action: #selector(languageMenuItemClicked(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.state = (lang == L10n.current) ? .on : .off
+            item.representedObject = lang
+            languageSubmenu.addItem(item)
+        }
+    }
+
+    @objc private func languageMenuItemClicked(_ sender: NSMenuItem) {
+        guard let lang = sender.representedObject as? Language else { return }
+        L10n.current = lang
+        rebuildMenu()
+        refreshUI()
     }
 
     // MARK: Mode handling
@@ -762,21 +1034,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     /// and the caller should continue switching to .strong mode.
     private func promptInstallSudoersAndRetry() -> Bool {
         let alert = NSAlert()
-        alert.messageText = "启用强力模式（合盖也不睡）"
-        alert.informativeText = """
-        强力模式需要一次性管理员授权，之后切换永久免密。
-
-        点击「立即授权」会弹出 macOS 原生的管理员对话框，输入登录密码即可。
-
-        授权范围被严格限制为：
-          • pmset -a disablesleep 0
-          • pmset -a disablesleep 1
-
-        不会获得其他任何 root 权限。
-        """
+        alert.messageText = L10n.strongModeAlertTitle
+        alert.informativeText = L10n.strongModeAlertInfo
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "立即授权…")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L10n.authorizeButton)
+        alert.addButton(withTitle: L10n.cancel)
 
         NSApp.activate(ignoringOtherApps: true)
         let response = alert.runModal()
@@ -790,15 +1052,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             return false
         case .failed(let detail):
             presentAlert(
-                title: "授权安装失败",
-                message: """
-                请尝试改用命令行：
-
-                  cd ~/a-idea/owly
-                  ./scripts/enable-lid-lock.sh
-
-                技术细节：\(detail)
-                """
+                title: L10n.installFailedTitle,
+                message: L10n.installFailedMessage + detail
             )
             return false
         }
@@ -806,11 +1061,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func resetAuthorizationClicked() {
         let alert = NSAlert()
-        alert.messageText = "撤销强力模式授权？"
-        alert.informativeText = "会删除 /etc/sudoers.d/owly（以及任何遗留的旧版本 sudoers 文件）并把 disablesleep 复位为 0。需要再次输入管理员密码。"
+        alert.messageText = L10n.resetAuthAlertTitle
+        alert.informativeText = L10n.resetAuthAlertInfo
         alert.alertStyle = .warning
-        alert.addButton(withTitle: "撤销授权")
-        alert.addButton(withTitle: "取消")
+        alert.addButton(withTitle: L10n.revokeButton)
+        alert.addButton(withTitle: L10n.cancel)
 
         NSApp.activate(ignoringOtherApps: true)
         guard alert.runModal() == .alertFirstButtonReturn else { return }
@@ -826,7 +1081,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .userCancelled:
             break
         case .failed(let detail):
-            presentAlert(title: "撤销失败", message: detail)
+            presentAlert(title: L10n.revokeFailedTitle, message: detail)
         }
     }
 
@@ -852,8 +1107,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .idle:
             if !assertion.enable() {
                 presentAlert(
-                    title: "切换失败",
-                    message: "IOKit 拒绝创建电源 assertion。"
+                    title: L10n.switchFailedTitle,
+                    message: L10n.idleSwitchFailed
                 )
                 currentMode = .off
                 refreshUI()
@@ -862,8 +1117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         case .strong:
             if !LidSleepLock.setEnabled(true) {
                 presentAlert(
-                    title: "切换失败",
-                    message: "执行 sudo pmset 失败。请检查 sudoers 配置。"
+                    title: L10n.switchFailedTitle,
+                    message: L10n.strongSwitchFailed
                 )
                 currentMode = .off
                 refreshUI()
@@ -895,7 +1150,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         for (mode, item) in modeItems {
             item.state = (mode == currentMode) ? .on : .off
             if mode == .strong && !LidSleepLock.isAuthorized() {
-                item.title = "\(mode.menuTitle) — 未授权"
+                item.title = "\(mode.menuTitle)\(L10n.notAuthorizedSuffix)"
             } else {
                 item.title = mode.menuTitle
             }
@@ -917,7 +1172,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         } catch {
             presentAlert(
-                title: "切换开机自启失败",
+                title: L10n.autostartFailedTitle,
                 message: "\(error)"
             )
             refreshUI()
@@ -930,8 +1185,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         if !wasInstalled && !UserDefaults.standard.bool(forKey: key) {
             UserDefaults.standard.set(true, forKey: key)
             presentAlert(
-                title: "开机自启已启用",
-                message: "下次开机或注销重新登录时，App 会自动启动。\n\n当前正在运行的实例不会受影响。"
+                title: L10n.autostartEnabledTitle,
+                message: L10n.autostartEnabledInfo
             )
         }
 
@@ -951,7 +1206,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             bundlePath: Bundle.main.bundlePath,
             pid: ProcessInfo.processInfo.processIdentifier
         )
-        showInfoWindow(content: AnyView(AboutView(snapshot: snapshot)), title: "关于 / 状态详情")
+        showInfoWindow(content: AnyView(AboutView(snapshot: snapshot)), title: L10n.aboutTitle)
     }
 
     @objc private func showDiagnostics() {
@@ -965,7 +1220,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             bundlePath: Bundle.main.bundlePath,
             pid: ProcessInfo.processInfo.processIdentifier
         )
-        showInfoWindow(content: AnyView(DiagnosticsView(snapshot: snapshot)), title: "诊断信息")
+        showInfoWindow(content: AnyView(DiagnosticsView(snapshot: snapshot)), title: L10n.diagTitle)
     }
 
     private func showInfoWindow(content: AnyView, title: String) {
@@ -1004,7 +1259,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         alert.messageText = title
         alert.informativeText = message
         alert.alertStyle = .informational
-        alert.addButton(withTitle: "好")
+        alert.addButton(withTitle: L10n.okButton)
         NSApp.activate(ignoringOtherApps: true)
         alert.runModal()
     }
@@ -1179,9 +1434,9 @@ struct StatusRow: View {
 
     private func healthHelp(_ h: RowHealth) -> String {
         switch h {
-        case .ok:   return "符合当前模式的预期"
-        case .na:   return "当前模式不使用此机制"
-        case .warn: return "状态与当前模式不一致"
+        case .ok:   return L10n.healthOk
+        case .na:   return L10n.healthNa
+        case .warn: return L10n.healthWarn
         }
     }
 }
@@ -1268,16 +1523,16 @@ private struct UnplugAlertView: View {
                     .foregroundStyle(Color.orange)
                     .symbolRenderingMode(.hierarchical)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("电源拔了")
+                    Text(L10n.unpluggedTitle)
                         .font(.system(size: 13, weight: .semibold))
-                    Text("当前是「熄屏不睡」")
+                    Text(L10n.unpluggedCurrently)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 0)
             }
 
-            Text("合盖会触发系统睡眠 — 任务/agent 会被打断。要切到「强力模式」吗？")
+            Text(L10n.unpluggedBody)
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1286,7 +1541,7 @@ private struct UnplugAlertView: View {
                 Button(action: onSwitchToStrong) {
                     HStack(spacing: 5) {
                         Image(systemName: "bolt.fill")
-                        Text("切到强力模式").font(.system(size: 12, weight: .medium))
+                        Text(L10n.switchToStrong).font(.system(size: 12, weight: .medium))
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 2)
@@ -1295,7 +1550,7 @@ private struct UnplugAlertView: View {
                 .controlSize(.regular)
 
                 Button(action: onDismiss) {
-                    Text("保持当前").font(.system(size: 12))
+                    Text(L10n.keepCurrent).font(.system(size: 12))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 2)
                 }
@@ -1368,8 +1623,8 @@ struct AboutView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 InfoCardHeader(
-                    title: "Owly",
-                    subtitle: "菜单栏防睡眠工具",
+                    title: L10n.aboutTitle,
+                    subtitle: L10n.aboutSubtitle,
                     symbol: "powersleep",
                     tint: .accentColor,
                     useAppIcon: true
@@ -1379,7 +1634,7 @@ struct AboutView: View {
                     StatusRow(
                         symbol: snapshot.currentMode.iconSymbol,
                         leadingMode: snapshot.currentMode,
-                        label: "当前模式",
+                        label: L10n.aboutCurrentMode,
                         value: snapshot.currentMode.menuTitle,
                         highlighted: snapshot.currentMode != .off
                     )
@@ -1388,12 +1643,9 @@ struct AboutView: View {
                         symbol: snapshot.lidAuthorized
                             ? "checkmark.shield.fill"
                             : "exclamationmark.shield",
-                        label: "强力模式授权",
-                        value: snapshot.lidAuthorized ? "已授权" : "未授权",
+                        label: L10n.aboutStrongAuth,
+                        value: snapshot.lidAuthorized ? L10n.authorized : L10n.notAuthorized,
                         highlighted: snapshot.lidAuthorized,
-                        // ok if installed; warn if currently *in* strong mode but
-                        // somehow not authorized (defensive — shouldn't happen);
-                        // otherwise it's just a user choice (na, not a problem).
                         health: snapshot.lidAuthorized
                             ? .ok
                             : (snapshot.currentMode == .strong ? .warn : .na)
@@ -1401,10 +1653,9 @@ struct AboutView: View {
                     Divider()
                     StatusRow(
                         symbol: snapshot.autostartConfigured ? "power.circle.fill" : "power.circle",
-                        label: "开机自启",
-                        value: snapshot.autostartConfigured ? "已配置" : "未配置",
+                        label: L10n.aboutAutostart,
+                        value: snapshot.autostartConfigured ? L10n.configured : L10n.notConfigured,
                         highlighted: snapshot.autostartConfigured,
-                        // Pure user preference — "未配置" is not a problem.
                         health: snapshot.autostartConfigured ? .ok : .na
                     )
                 }
@@ -1415,31 +1666,31 @@ struct AboutView: View {
                 )
 
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("模式说明")
+                    Text(L10n.modeDescription)
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.secondary)
 
                     ModeBlurb(
                         symbol: CaffeinateMode.off.iconSymbol,
                         mode: .off,
-                        title: "关闭",
-                        summary: "系统按默认电源策略走。",
+                        title: L10n.modeOff,
+                        summary: L10n.modeOffSummary,
                         highlighted: snapshot.currentMode == .off
                     )
 
                     ModeBlurb(
                         symbol: CaffeinateMode.idle.iconSymbol,
                         mode: .idle,
-                        title: "熄屏不睡（≈ caffeinate -i）",
-                        summary: "屏幕到时间照常熄灭省电，但系统不会因空闲而睡，任务继续跑。合盖仍会触发系统级睡眠。",
+                        title: L10n.modeIdleTitle,
+                        summary: L10n.modeIdleSummary,
                         highlighted: snapshot.currentMode == .idle
                     )
 
                     ModeBlurb(
                         symbol: CaffeinateMode.strong.iconSymbol,
                         mode: .strong,
-                        title: "强力模式（pmset disablesleep=1）",
-                        summary: "系统级硬开关，连合盖都不睡（强力模式是熄屏不睡的超集）。",
+                        title: L10n.modeStrongTitle,
+                        summary: L10n.modeStrongSummary,
                         highlighted: snapshot.currentMode == .strong
                     )
                 }
@@ -1448,7 +1699,7 @@ struct AboutView: View {
                     Image(systemName: "info.circle")
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
-                    Text("App 退出时会自动复位 disablesleep=0，避免遗留状态。")
+                    Text(L10n.autoResetNote)
                         .font(.system(size: 11))
                         .foregroundStyle(.secondary)
                 }
@@ -1530,7 +1781,7 @@ struct DiagnosticsView: View {
 
         return [
             AssertionRow(
-                label: "当前模式（内存）",
+                label: L10n.diagCurrentMode,
                 value: mode.menuTitle,
                 symbol: mode.iconSymbol,
                 leadingMode: mode,
@@ -1538,22 +1789,22 @@ struct DiagnosticsView: View {
                 health: nil
             ),
             AssertionRow(
-                label: "IOKit assertion",
-                value: snapshot.idleAssertionActive ? "active" : "inactive",
+                label: L10n.diagIOKit,
+                value: snapshot.idleAssertionActive ? L10n.active : L10n.inactive,
                 symbol: snapshot.idleAssertionActive ? "checkmark.seal.fill" : "circle.dashed",
                 highlighted: snapshot.idleAssertionActive,
                 health: iokitHealth
             ),
             AssertionRow(
-                label: "pmset disablesleep",
-                value: snapshot.disablesleepActive ? "1 (no sleep)" : "0 (default)",
+                label: L10n.diagPmset,
+                value: snapshot.disablesleepActive ? L10n.noSleep : L10n.defaultValue,
                 symbol: snapshot.disablesleepActive ? "lock.shield.fill" : "lock.open",
                 highlighted: snapshot.disablesleepActive,
                 health: pmsetHealth
             ),
             AssertionRow(
-                label: "强力模式 sudoers",
-                value: snapshot.lidAuthorized ? "OK (passwordless sudo)" : "未授权",
+                label: L10n.diagSudoers,
+                value: snapshot.lidAuthorized ? L10n.sudoersOk : L10n.notAuthorized,
                 symbol: snapshot.lidAuthorized ? "checkmark.shield.fill" : "exclamationmark.triangle.fill",
                 highlighted: snapshot.lidAuthorized,
                 health: sudoersHealth
@@ -1565,8 +1816,8 @@ struct DiagnosticsView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 InfoCardHeader(
-                    title: "诊断信息",
-                    subtitle: "实时读取的 App 与系统状态",
+                    title: L10n.diagTitle,
+                    subtitle: L10n.diagSubtitle,
                     symbol: "stethoscope",
                     tint: snapshot.lidAuthorized ? .green : .orange,
                     useAppIcon: true
@@ -1595,7 +1846,7 @@ struct DiagnosticsView: View {
                         HStack(spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill")
                                 .foregroundStyle(.orange)
-                            Text("sudoers 未生效")
+                            Text(L10n.sudoersNotActive)
                                 .font(.system(size: 13, weight: .semibold))
                         }
                         Text(snapshot.lidAuthFailureReason)
@@ -1603,7 +1854,7 @@ struct DiagnosticsView: View {
                             .foregroundStyle(.secondary)
                             .textSelection(.enabled)
                             .fixedSize(horizontal: false, vertical: true)
-                        Text("修复：菜单点击「强力模式」会自动弹出原生授权对话框，或运行命令行脚本 `scripts/enable-lid-lock.sh`")
+                        Text(L10n.sudoersFix)
                             .font(.system(size: 11))
                             .foregroundStyle(.secondary)
                     }
@@ -1615,13 +1866,13 @@ struct DiagnosticsView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("进程信息")
+                    Text(L10n.processInfo)
                         .font(.system(size: 13, weight: .bold))
                         .foregroundStyle(.secondary)
                     HStack(spacing: 6) {
                         Image(systemName: "number")
                             .foregroundStyle(.secondary)
-                        Text("PID")
+                        Text(L10n.pid)
                             .foregroundStyle(.secondary)
                         Text("\(snapshot.pid)")
                             .font(.system(.body, design: .monospaced))
@@ -1631,7 +1882,7 @@ struct DiagnosticsView: View {
                     HStack(alignment: .top, spacing: 6) {
                         Image(systemName: "shippingbox")
                             .foregroundStyle(.secondary)
-                        Text("Bundle")
+                        Text(L10n.bundle)
                             .foregroundStyle(.secondary)
                         Text(snapshot.bundlePath)
                             .font(.system(.caption, design: .monospaced))
