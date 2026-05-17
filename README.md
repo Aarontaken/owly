@@ -4,6 +4,8 @@
 >
 > 一个极简的 macOS 菜单栏防睡眠工具：屏幕该熄熄、CPU 该跑跑、合盖也能不睡。
 
+**中文** | [English](README_EN.md)
+
 [![Platform](https://img.shields.io/badge/platform-macOS%2012%2B-blue)](https://www.apple.com/macos/)
 [![Language](https://img.shields.io/badge/Swift-5-orange)](https://www.swift.org/)
 [![License](https://img.shields.io/badge/license-MIT-green)](LICENSE)
